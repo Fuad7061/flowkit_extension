@@ -540,11 +540,15 @@ function applyTunnelState(result) {
     urlBox.classList.remove('show');
     populateCurls('<YOUR_PUBLIC_URL_HERE>');
     openTunnelPanel();
-    errBox.textContent = '\u26a0 ' + (error || 'Unknown error. Is the server running?');
-    errBox.classList.add('show');
+    const currentWsHost = document.getElementById('ws-host').value.trim();
+    const isRemote = currentWsHost && !currentWsHost.includes('127.0.0.1');
+    if (!isRemote) {
+      errBox.textContent = '\u26a0 ' + (error || 'Unknown error. Is the server running?');
+      errBox.classList.add('show');
+    }
     
     const setupBox = document.getElementById('tunnel-setup-box');
-    if (result.needsNativeSetup && result.extensionId) {
+    if (!isRemote && result.needsNativeSetup && result.extensionId) {
       const code = document.getElementById('tunnel-setup-code');
       // Use absolute path for reliability
       code.textContent = `bash "/Users/bondhon/Bondhon/Github Project/Test/flowkit-image-api/native_host/install.sh" "${result.extensionId}"`;
