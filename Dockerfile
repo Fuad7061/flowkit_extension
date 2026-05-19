@@ -22,4 +22,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8100
 
 # Run the FastAPI server
-CMD ["python", "-m", "agent.main"]
+CMD ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8100"]

@@ -43,6 +43,16 @@ app.include_router(edit_router, prefix="/api")
 app.include_router(tunnel_router, prefix="/api")
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "FlowKit Cloud API is running smoothly!"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/ext/callback")
 async def ext_callback(request: Request):
     data = await request.json()
