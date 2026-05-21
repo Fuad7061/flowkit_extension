@@ -16,6 +16,7 @@ class GenerateRequest(BaseModel):
     prompt: str
     aspect_ratio: Optional[str] = "16:9"
     image_model: Optional[str] = None  # NANO_BANANA_PRO or NANO_BANANA_2
+    tasker: Optional[str] = "enabled"  # "enabled" or "disabled"
 
 
 class GenerateResponse(BaseModel):
@@ -41,39 +42,47 @@ def _get_model_key(model: Optional[str]) -> str:
 @router.post("", response_model=GenerateResponse)
 async def generate_image(body: GenerateRequest):
     client = get_flow_client()
+    use_tasker = body.tasker.lower() != "disabled" if body.tasker else True
 
-    aspect_ratio = _map_aspect_to_flow(body.aspect_ratio)
-    model_key = _get_model_key(body.image_model)
-    model_name = IMAGE_MODELS.get(model_key, "GEM_PIX_2")
+    if not client.connected and not use_tasker:
+        raise HTTPException(503, "Extension not connected")
 
-    project = await crud.create_project(
-        name=f"QuickGen",
-        story="Auto-generated for quick image",
-        material="realistic"
-    )
-    project_id = project["id"]
+    client._tasker_allowed = use_tasker
+    try:
+        aspect_ratio = _map_aspect_to_flow(body.aspect_ratio)
+        model_key = _get_model_key(body.image_model)
+        model_name = IMAGE_MODELS.get(model_key, "GEM_PIX_2")
 
-    result = await client.generate_images(
-        prompt=body.prompt,
-        project_id=project_id,
-        aspect_ratio=aspect_ratio,
-        image_model=model_name
-    )
+        project = await crud.create_project(
+            name=f"QuickGen",
+            story="Auto-generated for quick image",
+            material="realistic"
+        )
+        project_id = project["id"]
 
-    if result.get("error"):
-        raise HTTPException(500, f"Image generation failed: {result.get('error')}")
+        result = await client.generate_images(
+            prompt=body.prompt,
+            project_id=project_id,
+            aspect_ratio=aspect_ratio,
+            image_model=model_name
+        )
 
-    data = result.get("data", result)
-    image_url = None
+        if result.get("error"):
+            raise HTTPException(500, f"Image generation failed: {result.get('error')}")
 
-    if isinstance(data, dict):
-        media = data.get("media", [])
-        if media:
-            image_obj = media[0].get("image", {})
-            gen_img = image_obj.get("generatedImage", {})
-            image_url = gen_img.get("fifeUrl")
+        data = result.get("data", result)
+        image_url = None
 
-    if not image_url:
-        raise HTTPException(500, f"No image URL returned. Response: {str(data)[:200]}")
+        if isinstance(data, dict):
+            media = data.get("media", [])
+            if media:
+                image_obj = media[0].get("image", {})
+                gen_img = image_obj.get("generatedImage", {})
+                image_url = gen_img.get("fifeUrl")
 
-    return GenerateResponse(url=image_url)
+        if not image_url:
+            raise HTTPException(500, f"No image URL returned. Response: {str(data)[:200]}")
+
+        return GenerateResponse(url=image_url)
+    finally:
+        client._tasker_allowed = True

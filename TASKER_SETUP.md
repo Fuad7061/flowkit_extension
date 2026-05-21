@@ -120,12 +120,28 @@ If Kiwi Browser launches on your Android device → **SUCCESS!**
 
 ## Step 6: Use It
 
-Now when you send a cURL request and Kiwi is closed:
+Now when you send a cURL request and Kiwi is closed, it auto-wakes your device:
 
 ```bash
 curl -X POST "http://your-server:8100/api/generate" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a beautiful sunset over mountains", "aspect_ratio": "16:9"}'
+```
+
+**Tasker parameter** (optional, defaults to `"enabled"`):
+- `"enabled"` (default) — auto-wakes Kiwi if no extension connected
+- `"disabled"` — returns error immediately if no extension connected (no wake-up)
+
+```bash
+# Disable auto-wake-up
+curl -X POST "http://your-server:8100/api/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "a cat", "tasker": "disabled"}'
+
+# Edit with auto-wake-up disabled
+curl -X POST "http://your-server:8100/api/edit" \
+  -H "Content-Type: application/json" \
+  -d '{"image_url": "https://...", "prompt": "make it red", "tasker": "disabled"}'
 ```
 
 The flow will be:

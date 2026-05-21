@@ -17,6 +17,7 @@ class EditRequest(BaseModel):
     prompt: str
     aspect_ratio: Optional[str] = "16:9"
     image_model: Optional[str] = None  # GEM_PIX_2 or NARWHAL
+    tasker: Optional[str] = "enabled"  # "enabled" or "disabled"
 
 
 class EditResponse(BaseModel):
@@ -55,62 +56,70 @@ def _get_mime_type(filename: str) -> str:
 @router.post("", response_model=EditResponse)
 async def edit_image(body: EditRequest):
     client = get_flow_client()
+    use_tasker = body.tasker.lower() != "disabled" if body.tasker else True
 
-    image_bytes, content_type = await _download_image(body.image_url)
-    image_b64 = base64.b64encode(image_bytes).decode()
+    if not client.connected and not use_tasker:
+        raise HTTPException(503, "Extension not connected")
 
-    project = await crud.create_project(
-        name=f"QuickEdit",
-        story="Auto-generated for image edit",
-        material="realistic"
-    )
-    project_id = project["id"]
+    client._tasker_allowed = use_tasker
+    try:
+        image_bytes, content_type = await _download_image(body.image_url)
+        image_b64 = base64.b64encode(image_bytes).decode()
 
-    upload_result = await client.upload_image(
-        image_b64,
-        mime_type=content_type,
-        project_id=project_id,
-        file_name=f"edit_{uuid.uuid4()}.jpg"
-    )
+        project = await crud.create_project(
+            name=f"QuickEdit",
+            story="Auto-generated for image edit",
+            material="realistic"
+        )
+        project_id = project["id"]
 
-    if upload_result.get("error"):
-        raise HTTPException(500, f"Upload failed: {upload_result.get('error')}")
+        upload_result = await client.upload_image(
+            image_b64,
+            mime_type=content_type,
+            project_id=project_id,
+            file_name=f"edit_{uuid.uuid4()}.jpg"
+        )
 
-    source_media_id = upload_result.get("_mediaId")
-    if not source_media_id:
-        raise HTTPException(500, "Failed to get media_id from upload")
+        if upload_result.get("error"):
+            raise HTTPException(500, f"Upload failed: {upload_result.get('error')}")
 
-    aspect_ratio = _map_aspect_to_flow(body.aspect_ratio)
+        source_media_id = upload_result.get("_mediaId")
+        if not source_media_id:
+            raise HTTPException(500, "Failed to get media_id from upload")
 
-    model_key = "NANO_BANANA_PRO"  # default
-    if body.image_model == "NANO_BANANA_2":
-        model_key = "NANO_BANANA_2"
-    image_model = IMAGE_MODELS.get(model_key)
+        aspect_ratio = _map_aspect_to_flow(body.aspect_ratio)
 
-    edit_result = await client.edit_image(
-        prompt=body.prompt,
-        source_media_id=source_media_id,
-        project_id=project_id,
-        aspect_ratio=aspect_ratio,
-        image_model=image_model
-    )
+        model_key = "NANO_BANANA_PRO"  # default
+        if body.image_model == "NANO_BANANA_2":
+            model_key = "NANO_BANANA_2"
+        image_model = IMAGE_MODELS.get(model_key)
 
-    if edit_result.get("error"):
-        raise HTTPException(500, f"Edit failed: {edit_result.get('error')}")
+        edit_result = await client.edit_image(
+            prompt=body.prompt,
+            source_media_id=source_media_id,
+            project_id=project_id,
+            aspect_ratio=aspect_ratio,
+            image_model=image_model
+        )
 
-    data = edit_result.get("data", edit_result)
-    image_url = None
+        if edit_result.get("error"):
+            raise HTTPException(500, f"Edit failed: {edit_result.get('error')}")
 
-    if isinstance(data, dict):
-        media = data.get("media", [])
-        if media:
-            image_obj = media[0].get("image", {})
-            image_url = image_obj.get("fifeUrl")
-            if not image_url:
-                gen_img = image_obj.get("generatedImage", {})
-                image_url = gen_img.get("fifeUrl")
+        data = edit_result.get("data", edit_result)
+        image_url = None
 
-    if not image_url:
-        raise HTTPException(500, f"No edited image URL returned. Response: {str(data)[:300]}")
+        if isinstance(data, dict):
+            media = data.get("media", [])
+            if media:
+                image_obj = media[0].get("image", {})
+                image_url = image_obj.get("fifeUrl")
+                if not image_url:
+                    gen_img = image_obj.get("generatedImage", {})
+                    image_url = gen_img.get("fifeUrl")
 
-    return EditResponse(url=image_url)
+        if not image_url:
+            raise HTTPException(500, f"No edited image URL returned. Response: {str(data)[:300]}")
+
+        return EditResponse(url=image_url)
+    finally:
+        client._tasker_allowed = True

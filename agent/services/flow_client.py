@@ -27,6 +27,7 @@ class FlowClient:
     def __init__(self):
         self._extensions = {}  # { ws_obj: { "flow_key": None, "exhausted": False, "connected_at": time.time(), "client_id": None } }
         self._pending: dict[str, asyncio.Future] = {}
+        self._tasker_allowed = True
         # WS stats
         self._ws_connect_count = 0
         self._ws_disconnect_count = 0
@@ -228,19 +229,20 @@ class FlowClient:
         if self._launching_browser:
             return
         
-        # Try Tasker/AutoRemote first (for Android/Kiwi Browser)
-        tasker_service = get_tasker_service()
-        if tasker_service.list_devices():
-            logger.info("No extensions connected. Sending Tasker wake-up to Android devices...")
-            success_count = await tasker_service.broadcast_wake_up("w")
-            if success_count > 0:
-                logger.info("Tasker wake-up sent to %d device(s). Waiting for connection...", success_count)
-                for _ in range(30):
-                    if any(info["flow_key"] for info in self._extensions.values() if not info["exhausted"]):
-                        logger.info("Extension connected after Tasker wake-up")
-                        return
-                    await asyncio.sleep(1)
-                logger.warning("Tasker wake-up timeout - no extension connected after 30s")
+        if self._tasker_allowed:
+            # Try Tasker/AutoRemote first (for Android/Kiwi Browser)
+            tasker_service = get_tasker_service()
+            if tasker_service.list_devices():
+                logger.info("No extensions connected. Sending Tasker wake-up to Android devices...")
+                success_count = await tasker_service.broadcast_wake_up("w")
+                if success_count > 0:
+                    logger.info("Tasker wake-up sent to %d device(s). Waiting for connection...", success_count)
+                    for _ in range(30):
+                        if any(info["flow_key"] for info in self._extensions.values() if not info["exhausted"]):
+                            logger.info("Extension connected after Tasker wake-up")
+                            return
+                        await asyncio.sleep(1)
+                    logger.warning("Tasker wake-up timeout - no extension connected after 30s")
 
         # Fallback to local Chrome launch (macOS)
         from agent.services.browser_manager import get_browser_manager
