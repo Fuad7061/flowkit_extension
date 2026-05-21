@@ -43,7 +43,7 @@ class TaskerService:
         """List all registered devices."""
         return list(self._devices)
 
-    async def send_wake_up(self, tasker_url: str, message: str = "WakeKiwi") -> bool:
+    async def send_wake_up(self, tasker_url: str, message: str = "w") -> bool:
         """Send wake-up message to a Tasker/AutoRemote endpoint.
 
         AutoRemote URL format:
@@ -99,7 +99,7 @@ class TaskerService:
             logger.error("Unexpected error sending wake-up: %s", e)
             return False
 
-    async def broadcast_wake_up(self, message: str = "WakeKiwi") -> int:
+    async def broadcast_wake_up(self, message: str = "w") -> int:
         """Send wake-up to all registered devices. Returns count of successful sends."""
         if not self._devices:
             logger.warning("No Tasker devices registered")

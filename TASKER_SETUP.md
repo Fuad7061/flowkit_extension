@@ -19,13 +19,13 @@
 3. Copy the **Key** shown (it can be short like `wG8e1B8B` or long like an FCM token)
 4. Your message URL will be:
    ```
-   https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=a
+   https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=w
    ```
 5. **Test this URL in your phone browser first** - if Kiwi launches, it works!
 
 ---
 
-## Step 2: Create Tasker Task "WakeKiwi"
+## Step 2: Create Tasker Task
 
 1. Open **Tasker**
 2. Go to **Tasks** tab
@@ -36,22 +36,19 @@
 ### Add Action: Launch Kiwi Browser
 
 1. Tap `+` button (bottom)
-2. Go to: **App** → **Launch App**
-3. Select **Kiwi Browser** from the list
-4. Tap `←` to go back
-
-### (Optional) Add Action: Wait 2 Seconds
-
-1. Tap `+` button
-2. Go to: **Task** → **Wait**
-3. Set: **Secs: 2**
+2. Go to: **App** → **Send Intent**
+3. Configure:
+   - **Action**: `android.intent.action.MAIN`
+   - **Cat**: `Launcher`
+   - **Pkg**: `com.kiwibrowser.browser`
+   - **Cls**: `com.kiwibrowser.browser.Main`
+   - **Target**: `Activity`
 4. Tap `←` to go back
 
 Your task should look like:
 ```
 WakeKiwi
-  A1: Launch App [ Kiwi Browser ]
-  A2: Wait [ Secs:2 ]
+  A1: Send Intent [ Action:android.intent.action.MAIN Cat:Launcher Pkg:com.kiwibrowser.browser Cls:com.kiwibrowser.browser.Main Target:Activity ]
 ```
 
 ---
@@ -65,7 +62,7 @@ WakeKiwi
 5. Tap the **pencil/edit** icon next to "Config"
 6. In the AutoRemote config screen:
    - Tap **Add Message Match** (or type in the message field)
-   - Type: `WakeKiwi`
+   - Type: `w`
    - Tap **✓** or **Done**
 7. Press **back** to return to Tasker
 8. Tasker will prompt: **"Link Task?"**
@@ -74,7 +71,7 @@ WakeKiwi
 Your Profile should now look like:
 ```
 Profile: AutoRemote WakeKiwi
-  Event: Plugin → AutoRemote [ Config: WakeKiwi ]
+  Event: Plugin → AutoRemote [ Config: w ]
   Enter: WakeKiwi
 ```
 
@@ -93,7 +90,7 @@ curl -X POST "http://your-server:8100/api/tasker/register" \
   }'
 ```
 
-Note: The URL should be the base `/sendmessage` endpoint with your key. The `&message=WakeKiwi` part is added automatically by the server.
+Note: The URL should be the base `/sendmessage` endpoint with your key. The `&message=w` part is added automatically by the server.
 
 ---
 
@@ -102,7 +99,7 @@ Note: The URL should be the base `/sendmessage` endpoint with your key. The `&me
 ### Quick AutoRemote test (open on phone browser):
 Open this URL on your Android phone (replace YOUR_KEY with your actual key):
 ```
-https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=WakeKiwi
+https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=w
 ```
 If Kiwi launches → AutoRemote + Tasker setup is correct!
 
@@ -148,15 +145,15 @@ The flow will be:
 ### Kiwi doesn't launch on test
 - Check AutoRemote URL is correct (has your key)
 - Check Tasker Profile exists with AutoRemote Event
-- Check message match is exactly `WakeKiwi` (case-sensitive)
-- Check Profile is linked to `WakeKiwi` task
+- Check message match is exactly `w` (case-sensitive)
+- Check Profile is linked to your Kiwi launch task
 - Check Tasker is running (not killed by battery optimization)
 
 ### Profile not triggering
 - In Tasker, make sure the Profile is **enabled** (checkbox ticked)
 - Test by opening this URL in your phone browser:
   ```
-  https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=WakeKiwi
+  https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=w
   ```
 - If it works in browser but not from server, check server logs
 
@@ -168,7 +165,7 @@ The flow will be:
 ### AutoRemote URL not working
 - Open the URL in your browser to test:
   ```
-  https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=Test
+   https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=w
   ```
 - Should see "Message received" or similar response
 

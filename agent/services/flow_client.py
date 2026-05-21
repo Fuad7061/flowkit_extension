@@ -232,7 +232,7 @@ class FlowClient:
         tasker_service = get_tasker_service()
         if tasker_service.list_devices():
             logger.info("No extensions connected. Sending Tasker wake-up to Android devices...")
-            success_count = await tasker_service.broadcast_wake_up("WakeKiwi")
+            success_count = await tasker_service.broadcast_wake_up("w")
             if success_count > 0:
                 logger.info("Tasker wake-up sent to %d device(s). Waiting for connection...", success_count)
                 for _ in range(30):
