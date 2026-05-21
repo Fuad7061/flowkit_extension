@@ -47,16 +47,29 @@ class TaskerService:
         """Send wake-up message to a Tasker/AutoRemote endpoint.
 
         AutoRemote URL format:
-        https://autoremotejoaomgcd.appspot.com/?key=YOUR_KEY&message=MESSAGE
+        https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=MESSAGE
 
         Returns True if HTTP request succeeded (2xx), False otherwise.
         """
         try:
             if "autoremote" in tasker_url.lower():
-                url = tasker_url
-                if "message=" not in url:
-                    sep = "&" if "?" in url else "?"
-                    url = f"{url}{sep}message={message}"
+                from urllib.parse import urlparse, parse_qs, urlencode
+
+                parsed = urlparse(tasker_url)
+                params = parse_qs(parsed.query)
+
+                # Ensure path includes /sendmessage
+                path = parsed.path
+                if not path or path == "/":
+                    path = "/sendmessage"
+
+                # Add message parameter (keep existing params like key, password, etc)
+                params["message"] = [message]
+
+                # Rebuild URL
+                new_query = urlencode(params, doseq=True)
+                url = f"{parsed.scheme}://{parsed.netloc}{path}?{new_query}"
+
             else:
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.post(

@@ -16,11 +16,12 @@
 
 1. Open **AutoRemote** app on Android
 2. Sign in with your Google account (if prompted)
-3. You will see a unique URL like:
+3. Copy the **Key** shown (it can be short like `wG8e1B8B` or long like an FCM token)
+4. Your message URL will be:
    ```
-   https://autoremotejoaomgcd.appspot.com/?key=ABC123xyz456
+   https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=a
    ```
-4. **Copy this URL** - you'll need it later
+5. **Test this URL in your phone browser first** - if Kiwi launches, it works!
 
 ---
 
@@ -87,19 +88,21 @@ Run this command on your server (replace with your actual AutoRemote URL):
 curl -X POST "http://your-server:8100/api/tasker/register" \
   -H "Content-Type: application/json" \
   -d '{
-    "tasker_url": "https://autoremotejoaomgcd.appspot.com/?key=YOUR_KEY_HERE",
+    "tasker_url": "https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY_HERE",
     "device_name": "My Android Phone"
   }'
 ```
+
+Note: The URL should be the base `/sendmessage` endpoint with your key. The `&message=WakeKiwi` part is added automatically by the server.
 
 ---
 
 ## Step 5: Test It
 
 ### Quick AutoRemote test (open on phone browser):
-Open this URL on your Android phone:
+Open this URL on your Android phone (replace YOUR_KEY with your actual key):
 ```
-https://autoremotejoaomgcd.appspot.com/?key=YOUR_KEY&message=WakeKiwi
+https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=WakeKiwi
 ```
 If Kiwi launches → AutoRemote + Tasker setup is correct!
 
@@ -153,7 +156,7 @@ The flow will be:
 - In Tasker, make sure the Profile is **enabled** (checkbox ticked)
 - Test by opening this URL in your phone browser:
   ```
-  https://autoremotejoaomgcd.appspot.com/?key=YOUR_KEY&message=WakeKiwi
+  https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=WakeKiwi
   ```
 - If it works in browser but not from server, check server logs
 
@@ -165,7 +168,7 @@ The flow will be:
 ### AutoRemote URL not working
 - Open the URL in your browser to test:
   ```
-  https://autoremotejoaomgcd.appspot.com/?key=YOUR_KEY&message=Test
+  https://autoremotejoaomgcd.appspot.com/sendmessage?key=YOUR_KEY&message=Test
   ```
 - Should see "Message received" or similar response
 
@@ -203,11 +206,11 @@ You can register multiple Android devices for redundancy:
 ```bash
 # Device 1
 curl -X POST "http://your-server:8100/api/tasker/register" \
-  -d '{"tasker_url": "https://autoremote...?key=KEY1", "device_name": "Phone"}'
+  -d '{"tasker_url": "https://autoremotejoaomgcd.appspot.com/sendmessage?key=KEY1", "device_name": "Phone"}'
 
 # Device 2
 curl -X POST "http://your-server:8100/api/tasker/register" \
-  -d '{"tasker_url": "https://autoremote...?key=KEY2", "device_name": "Tablet"}'
+  -d '{"tasker_url": "https://autoremotejoaomgcd.appspot.com/sendmessage?key=KEY2", "device_name": "Tablet"}'
 ```
 
 When a request comes in, **all registered devices** will receive the wake-up signal simultaneously.
