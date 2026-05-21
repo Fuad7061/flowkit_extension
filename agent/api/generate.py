@@ -41,8 +41,6 @@ def _get_model_key(model: Optional[str]) -> str:
 @router.post("", response_model=GenerateResponse)
 async def generate_image(body: GenerateRequest):
     client = get_flow_client()
-    if not client.connected:
-        raise HTTPException(503, "Extension not connected")
 
     aspect_ratio = _map_aspect_to_flow(body.aspect_ratio)
     model_key = _get_model_key(body.image_model)

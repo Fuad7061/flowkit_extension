@@ -55,8 +55,6 @@ def _get_mime_type(filename: str) -> str:
 @router.post("", response_model=EditResponse)
 async def edit_image(body: EditRequest):
     client = get_flow_client()
-    if not client.connected:
-        raise HTTPException(503, "Extension not connected")
 
     image_bytes, content_type = await _download_image(body.image_url)
     image_b64 = base64.b64encode(image_bytes).decode()
