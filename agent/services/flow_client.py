@@ -260,6 +260,7 @@ class FlowClient:
         if self._tasker_allowed:
             # Try Tasker/AutoRemote first (for Android/Kiwi Browser)
             tasker_service = get_tasker_service()
+            await tasker_service._ensure_loaded()
             if tasker_service.list_devices():
                 logger.info("No extensions connected. Sending Tasker wake-up to Android devices...")
                 success_count = await tasker_service.broadcast_wake_up("w")

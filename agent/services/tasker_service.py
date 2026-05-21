@@ -13,6 +13,25 @@ class TaskerService:
 
     def __init__(self):
         self._devices: list[dict] = []
+        self._loaded = False
+
+    async def _ensure_loaded(self):
+        """Load devices from DB on first access."""
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            from agent.db import crud
+            devices = await crud.list_tasker_devices()
+            for d in devices:
+                self._devices.append({
+                    "tasker_url": d["tasker_url"],
+                    "device_name": d["device_name"],
+                })
+            if devices:
+                logger.info("Loaded %d Tasker device(s) from database", len(devices))
+        except Exception as e:
+            logger.warning("Failed to load Tasker devices from DB: %s", e)
 
     def register_device(self, tasker_url: str, device_name: str) -> dict:
         """Register a Tasker/AutoRemote endpoint."""

@@ -302,6 +302,15 @@ CREATE INDEX IF NOT EXISTS idx_request_scene ON request(scene_id);
     negative_prompt TEXT, scene_prefix TEXT, lighting TEXT DEFAULT 'Studio lighting, highly detailed',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""")
             logger.info("Migrated: created material table")
+        # Migration: create tasker_device table for persisting AutoRemote endpoints
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasker_device'")
+        if not await cursor.fetchone():
+            await db.execute("""CREATE TABLE tasker_device (
+    tasker_url TEXT PRIMARY KEY,
+    device_name TEXT NOT NULL,
+    registered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    last_seen_at TEXT)""")
+            logger.info("Migrated: created tasker_device table")
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 

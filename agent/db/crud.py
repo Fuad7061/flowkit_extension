@@ -338,3 +338,28 @@ async def list_materials() -> list[dict]:
     db = await get_db()
     cur = await db.execute("SELECT * FROM material ORDER BY created_at")
     return [dict(r) for r in await cur.fetchall()]
+
+
+# ─── Tasker Device ──────────────────────────────────────────
+
+async def create_tasker_device(tasker_url: str, device_name: str) -> dict:
+    db = await get_db()
+    now = _now()
+    async with _db_lock:
+        await db.execute(
+            "INSERT OR REPLACE INTO tasker_device (tasker_url, device_name, registered_at, last_seen_at) VALUES (?,?,?,?)",
+            (tasker_url, device_name, now, now))
+        await db.commit()
+    return {"tasker_url": tasker_url, "device_name": device_name, "registered_at": now}
+
+async def delete_tasker_device(tasker_url: str) -> bool:
+    db = await get_db()
+    async with _db_lock:
+        cur = await db.execute("DELETE FROM tasker_device WHERE tasker_url=?", (tasker_url,))
+        await db.commit()
+    return cur.rowcount > 0
+
+async def list_tasker_devices() -> list[dict]:
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM tasker_device ORDER BY registered_at")
+    return [dict(r) for r in await cur.fetchall()]
