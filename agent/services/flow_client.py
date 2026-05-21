@@ -88,6 +88,9 @@ class FlowClient:
             logger.info("Extension ready, flowKey=%s (client: %s)", "yes" if data.get("flowKeyPresent") else "no", client_info["client_id"])
             if client_info["flow_key"]:
                 asyncio.create_task(self._sync_tier(ws))
+            else:
+                # No token yet — open Flow tab and wait for token capture
+                asyncio.create_task(self._wait_for_token_on_connect(ws))
             return
 
         if data.get("type") == "media_urls_refresh":
@@ -108,6 +111,31 @@ class FlowClient:
             if not self._pending[req_id].done():
                 self._pending[req_id].set_result((ws, data))
             return
+
+    async def _wait_for_token_on_connect(self, ws):
+        """Open Flow tab and wait for token capture when extension connects without token."""
+        client_info = self._extensions.get(ws)
+        if not client_info or client_info.get("flow_key"):
+            return
+
+        logger.info("Extension connected without token — opening Flow tab...")
+        try:
+            await ws.send_text(json.dumps({
+                "method": "open_flow_tab"
+            }))
+        except Exception as e:
+            logger.warning("Failed to send open_flow_tab: %s", e)
+            return
+
+        # Wait up to 20 seconds for token_captured message
+        for i in range(20):
+            if client_info.get("flow_key"):
+                logger.info("Token captured after Flow tab open (waited %ds)", i)
+                asyncio.create_task(self._sync_tier(ws))
+                return
+            await asyncio.sleep(1)
+
+        logger.warning("No token captured within 20s after opening Flow tab")
 
     async def _sync_tier(self, ws):
         """Detect current tier from credits API and update all active projects."""
@@ -272,6 +300,20 @@ class FlowClient:
             
             if not self._extensions:
                 return {"error": "Extension not connected. Auto-launch failed or timed out."}
+
+        # 1.5. If extensions connected but no token, wait briefly for token capture
+        has_token = any(info.get("flow_key") and info.get("flow_key") != "present" for info in self._extensions.values())
+        if not has_token:
+            logger.info("Extension(s) connected but no token yet, waiting up to 15s...")
+            for _ in range(15):
+                has_token = any(info.get("flow_key") and info.get("flow_key") != "present" for info in self._extensions.values())
+                if has_token:
+                    logger.info("Token captured, proceeding with request")
+                    break
+                await asyncio.sleep(1)
+            
+            if not has_token:
+                return {"error": "No token captured after waiting. Please open Google Flow in browser and ensure you are logged in."}
 
         # 2. Iterate through available websockets to find one that succeeds
         attempted = 0
