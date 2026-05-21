@@ -13,6 +13,7 @@ from agent.db.schema import init_db, close_db
 from agent.api.generate import router as generate_router
 from agent.api.edit import router as edit_router
 from agent.api.tunnel import router as tunnel_router
+from agent.api.tasker import router as tasker_router
 from agent.services.flow_client import get_flow_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -41,6 +42,7 @@ app.add_middleware(
 app.include_router(generate_router, prefix="/api")
 app.include_router(edit_router, prefix="/api")
 app.include_router(tunnel_router, prefix="/api")
+app.include_router(tasker_router, prefix="/api")
 
 
 @app.get("/")

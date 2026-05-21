@@ -1,0 +1,12 @@
+# Ignore macOS metadata
+.DS_Store
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore SQLite DB
+*.db
+*.db-journal
+*.db-wal

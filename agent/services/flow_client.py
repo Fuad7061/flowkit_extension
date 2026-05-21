@@ -16,6 +16,7 @@ from agent.config import (
     VIDEO_MODELS, UPSCALE_MODELS, IMAGE_MODELS, VIDEO_POLL_TIMEOUT,
 )
 from agent.services.headers import random_headers
+from agent.services.tasker_service import get_tasker_service
 
 logger = logging.getLogger(__name__)
 
@@ -223,17 +224,29 @@ class FlowClient:
                 "For URL refresh, open the project in Google Flow in Chrome."}
 
     async def _trigger_browser_launch(self):
-        """Trigger an OS launch of a Chrome profile if none are connected or all exhausted."""
+        """Trigger an OS launch of a Chrome profile OR send Tasker wake-up to Android devices."""
         if self._launching_browser:
             return
-            
+        
+        # Try Tasker/AutoRemote first (for Android/Kiwi Browser)
+        tasker_service = get_tasker_service()
+        if tasker_service.list_devices():
+            logger.info("No extensions connected. Sending Tasker wake-up to Android devices...")
+            success_count = await tasker_service.broadcast_wake_up("WakeKiwi")
+            if success_count > 0:
+                logger.info("Tasker wake-up sent to %d device(s). Waiting for connection...", success_count)
+                for _ in range(30):
+                    if any(info["flow_key"] for info in self._extensions.values() if not info["exhausted"]):
+                        logger.info("Extension connected after Tasker wake-up")
+                        return
+                    await asyncio.sleep(1)
+                logger.warning("Tasker wake-up timeout - no extension connected after 30s")
+
+        # Fallback to local Chrome launch (macOS)
         from agent.services.browser_manager import get_browser_manager
         bm = get_browser_manager()
         profiles = bm.get_profiles()
         
-        # Pick the first profile that isn't connected
-        # In a robust setup, we'd track which profiles are exhausted and pick the next one.
-        # For now, we'll just launch the first available one to get ANY connection.
         profile_to_launch = "Default"
         if profiles:
             profile_to_launch = list(profiles.keys())[0]
@@ -241,7 +254,6 @@ class FlowClient:
         self._launching_browser = True
         try:
             bm.launch_profile(profile_to_launch)
-            # Give it up to 10 seconds to connect
             for _ in range(10):
                 if any(info["flow_key"] for info in self._extensions.values() if not info["exhausted"]):
                     break
