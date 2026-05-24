@@ -415,12 +415,17 @@ class FlowClient:
                     logger.warning("Connection returned %s. Marking as exhausted and retrying...", error_str or "429")
                     if returned_ws in self._extensions:
                         self._extensions[returned_ws]["exhausted"] = True
-                    # If NO_FLOW_KEY, tell the extension to open the tab
+                    # If NO_FLOW_KEY, tell the extension to reload the Flow tab and wait for token
                     if error_str == "NO_FLOW_KEY":
                         asyncio.create_task(returned_ws.send_text(json.dumps({
                             "id": str(uuid.uuid4()),
                             "method": "open_flow_tab"
                         })))
+                        # Wait for token to be captured (up to 15s)
+                        for _ in range(15):
+                            if any(info.get("flow_key") and info.get("flow_key") != "present" for info in self._extensions.values()):
+                                break
+                            await asyncio.sleep(1)
                     attempted += 1
                     if attempted >= 5:
                         return {"error": "Exceeded max fallback attempts."}

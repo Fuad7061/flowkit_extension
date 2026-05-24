@@ -207,13 +207,14 @@ async function openFlowTab() {
     url: ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'],
   });
   if (tabs.length) {
-    chrome.tabs.update(tabs[0].id, { active: true });
+    // Reload existing tab to trigger fresh API calls with Bearer token
+    await chrome.tabs.reload(tabs[0].id);
     return;
   }
   try {
     await chrome.tabs.create({ url: 'https://labs.google/fx/tools/flow' });
   } catch (e) {
-    console.log('[FlowAgent] openFlowTab failed to create tab (no window?), creating new window:', e);
+    console.log('[FlowAgent] openFlowTab failed to create tab, creating window:', e);
     await chrome.windows.create({ url: 'https://labs.google/fx/tools/flow', state: 'minimized' });
   }
 }
@@ -255,6 +256,13 @@ async function captureTokenFromFlowTab() {
       _openingFlowTab = false;
     }
     return;
+  }
+  // Reload existing Flow tab so it makes fresh API calls with Bearer token
+  try {
+    await chrome.tabs.reload(tabs[0].id);
+    await new Promise(r => setTimeout(r, 2000));
+  } catch (e) {
+    console.error('[FlowAgent] Failed to reload Flow tab:', e);
   }
   try {
     await chrome.scripting.executeScript({
