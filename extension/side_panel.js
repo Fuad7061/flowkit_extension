@@ -190,12 +190,6 @@ function updateConnStatus(status) {
   }
   if (btnConnect) btnConnect.style.display = status.wsConnected ? 'none' : '';
   if (btnDisconnect) btnDisconnect.style.display = status.wsConnected ? '' : 'none';
-
-  // Update ws-host input if value differs
-  const wsHostInput = document.getElementById('tunnel-ws-host');
-  if (wsHostInput && status.wsHost && wsHostInput.value !== status.wsHost) {
-    wsHostInput.value = status.wsHost;
-  }
 }
 
 // ── Request log ──────────────────────────────────────────────
