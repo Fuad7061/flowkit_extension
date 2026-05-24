@@ -41,7 +41,7 @@
     "default_path": "side_panel.html"
   },
   "action": {
-    "default_popup": "side_panel.html",
+    "default_popup": "popup.html",
     "default_title": "Flow Kit"
   },
   "options_page": "side_panel.html"

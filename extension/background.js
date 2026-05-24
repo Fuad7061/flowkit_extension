@@ -36,6 +36,19 @@ let metrics = {
   lastError: null,
 };
 
+// ─── Log Settings ────────────────────────────────────────────
+let logSettings = {
+  autoClear: true,
+  retentionDays: 3,
+  maxEntries: 100,
+  persistEnabled: true,
+};
+
+// Load log settings from storage on startup
+chrome.storage.local.get(['logSettings'], (res) => {
+  if (res.logSettings) Object.assign(logSettings, res.logSettings);
+});
+
 // ─── URL → Log Type Classifier ─────────────────────────────
 
 // Visible log types — only these appear in the request log
@@ -57,21 +70,76 @@ function _classifyApiUrl(url) {
 // ─── Request Log ────────────────────────────────────────────
 
 let requestLog = [];
+let _logSaveTimer = null;
 
 function addRequestLog(entry) {
+  // Always set the extension client_id and start time on new entries
+  entry.extensionId = clientId;
+  entry.startedAt = entry.time || new Date().toISOString();
   requestLog.unshift(entry);
-  if (requestLog.length > 100) requestLog.pop();
+  // Enforce max entries
+  if (requestLog.length > logSettings.maxEntries) requestLog.pop();
   broadcastRequestLog();
+  scheduleLogSave();
 }
 
 function updateRequestLog(id, updates) {
   const entry = requestLog.find((e) => e.id === id);
-  if (entry) Object.assign(entry, updates);
+  if (entry) {
+    Object.assign(entry, updates);
+    // Calculate duration if not set and we have completion time
+    if (!entry.duration && entry.startedAt) {
+      const end = new Date().toISOString();
+      entry.duration = new Date(end).getTime() - new Date(entry.startedAt).getTime();
+    }
+  }
   broadcastRequestLog();
+  scheduleLogSave();
 }
 
 function broadcastRequestLog() {
   chrome.runtime.sendMessage({ type: 'REQUEST_LOG_UPDATE', log: requestLog }).catch(() => {});
+}
+
+function scheduleLogSave() {
+  if (!logSettings.persistEnabled) return;
+  if (_logSaveTimer) clearTimeout(_logSaveTimer);
+  _logSaveTimer = setTimeout(() => {
+    chrome.storage.local.set({ requestLog: requestLog.slice(0, logSettings.maxEntries) });
+    _logSaveTimer = null;
+  }, 300);
+}
+
+function clearRequestLog() {
+  requestLog = [];
+  metrics = { tokenCapturedAt: null, requestCount: 0, successCount: 0, failedCount: 0, lastError: null };
+  chrome.storage.local.set({ requestLog: [], metrics });
+  broadcastStatus();
+  broadcastRequestLog();
+}
+
+function deleteLogEntry(id) {
+  requestLog = requestLog.filter(e => e.id !== id);
+  scheduleLogSave();
+  broadcastRequestLog();
+}
+
+function cleanupOldLogs() {
+  const cutoff = Date.now() - (logSettings.retentionDays * 86400000);
+  const before = requestLog.length;
+  requestLog = requestLog.filter(e => {
+    if (!logSettings.autoClear) return true;
+    const t = e.time || e.timestamp || e.startedAt || e.createdAt;
+    if (!t) return true; // preserve entries without timestamps
+    try { return new Date(t).getTime() > cutoff; } catch { return true; }
+  });
+  if (requestLog.length > logSettings.maxEntries) {
+    requestLog = requestLog.slice(0, logSettings.maxEntries);
+  }
+  if (requestLog.length !== before) {
+    scheduleLogSave();
+    broadcastRequestLog();
+  }
 }
 
 // ─── Startup ────────────────────────────────────────────────
@@ -84,15 +152,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'token-refresh') {
     await captureTokenFromFlowTab();
   }
+  if (alarm.name === 'log-cleanup') {
+    cleanupOldLogs();
+  }
 });
 
 async function init() {
-  const data = await chrome.storage.local.get(['flowKey', 'metrics', 'callbackSecret']);
+  const data = await chrome.storage.local.get(['flowKey', 'metrics', 'callbackSecret', 'requestLog', 'logSettings']);
   if (data.flowKey) flowKey = data.flowKey;
   if (data.metrics) Object.assign(metrics, data.metrics);
   if (data.callbackSecret) callbackSecret = data.callbackSecret;
+  if (data.requestLog) requestLog = data.requestLog;
+  if (data.logSettings) Object.assign(logSettings, data.logSettings);
   connectToAgent();
   chrome.alarms.create('keepAlive', { periodInMinutes: 0.4 });
+  chrome.alarms.create('log-cleanup', { periodInMinutes: 60 });
+  // Run initial cleanup on startup
+  cleanupOldLogs();
 }
 
 // ─── Token Capture ──────────────────────────────────────────
@@ -468,8 +544,14 @@ async function handleApiRequest(msg) {
   const logId = id;
   const logType = _classifyApiUrl(url);
   if (_VISIBLE_TYPES.has(logType)) {
-    const payloadSummary = body ? JSON.stringify(body).slice(0, 200) : null;
-    addRequestLog({ id: logId, type: logType, time: new Date().toISOString(), status: 'processing', error: null, outputUrl: null, url, payloadSummary });
+    addRequestLog({
+      id: logId, type: logType, time: new Date().toISOString(),
+      status: 'processing', error: null, outputUrl: null,
+      url, method,
+      requestBody: body ? JSON.stringify(body) : null,
+      payloadSummary: body ? JSON.stringify(body).slice(0, 200) : null,
+      extensionId: clientId,
+    });
   }
 
   try {
@@ -544,12 +626,13 @@ async function handleApiRequest(msg) {
     });
 
     const responseSummary = responseText ? responseText.slice(0, 300) : null;
+    const responseBody = responseText;
     if (response.ok) {
       if (hasCaptcha) { metrics.successCount++; metrics.lastError = null; }
-      updateRequestLog(logId, { status: 'success', httpStatus: response.status, responseSummary });
+      updateRequestLog(logId, { status: 'success', httpStatus: response.status, responseSummary, responseBody });
     } else {
       if (hasCaptcha) { metrics.failedCount++; metrics.lastError = `API_${response.status}`; }
-      updateRequestLog(logId, { status: 'failed', error: `API_${response.status}`, httpStatus: response.status, responseSummary });
+      updateRequestLog(logId, { status: 'failed', error: `API_${response.status}`, httpStatus: response.status, responseSummary, responseBody });
     }
   } catch (e) {
     sendToAgent({
@@ -558,7 +641,7 @@ async function handleApiRequest(msg) {
       error: e.message || 'API_REQUEST_FAILED',
     });
     if (hasCaptcha) { metrics.failedCount++; metrics.lastError = e.message; }
-    updateRequestLog(logId, { status: 'failed', error: e.message || 'API_REQUEST_FAILED' });
+    updateRequestLog(logId, { status: 'failed', error: e.message || 'API_REQUEST_FAILED', errorStack: e.stack });
   }
 
   chrome.storage.local.set({ metrics });
@@ -720,6 +803,65 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
 
   if (msg.type === 'REQUEST_LOG') {
     reply({ log: requestLog });
+    return true;
+  }
+
+  if (msg.type === 'CLEAR_LOG') {
+    clearRequestLog();
+    reply({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'DELETE_LOG_ENTRY') {
+    if (msg.id) deleteLogEntry(msg.id);
+    reply({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'GET_LOG_SETTINGS') {
+    reply({ settings: logSettings });
+    return true;
+  }
+
+  if (msg.type === 'SAVE_LOG_SETTINGS') {
+    if (msg.settings) {
+      Object.assign(logSettings, msg.settings);
+      chrome.storage.local.set({ logSettings });
+      // Restart cleanup alarm if needed
+      chrome.alarms.create('log-cleanup', { periodInMinutes: 60 });
+      cleanupOldLogs();
+    }
+    reply({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'GET_CLIENT_ID') {
+    reply({ clientId });
+    return true;
+  }
+
+  if (msg.type === 'GET_EXTENSIONS') {
+    // Fetch from agent API if connected, otherwise return local info only
+    fetch('http://127.0.0.1:8100/api/extensions', {
+      signal: AbortSignal.timeout(3000)
+    })
+      .then(r => r.json())
+      .then(data => reply({ extensions: data.extensions || [], localClientId: clientId }))
+      .catch(() => reply({ extensions: [], localClientId: clientId }));
+    return true;
+  }
+
+  if (msg.type === 'GET_CONNECTION_STATUS') {
+    chrome.storage.local.get(['ngrokAuthToken', 'ngrokDomain', 'tunnelStatus', 'wsHost'], (data) => {
+      reply({
+        wsConnected: ws?.readyState === WebSocket.OPEN,
+        wsHost: data.wsHost || 'ws://127.0.0.1:8100/ws',
+        clientId,
+        tunnelStatus: data.tunnelStatus || 'stopped',
+        tunnelConfigured: !!(data.ngrokAuthToken && data.ngrokDomain),
+        isRemote: data.wsHost && !data.wsHost.includes('127.0.0.1') && !data.wsHost.includes('localhost'),
+      });
+    });
     return true;
   }
 

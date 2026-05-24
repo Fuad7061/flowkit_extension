@@ -17,6 +17,7 @@ class GenerateRequest(BaseModel):
     aspect_ratio: Optional[str] = "16:9"
     image_model: Optional[str] = None  # NANO_BANANA_PRO or NANO_BANANA_2
     tasker: Optional[str] = "enabled"  # "enabled" or "disabled"
+    client_id: Optional[str] = None  # Route to a specific browser extension by client_id
 
 
 class GenerateResponse(BaseModel):
@@ -64,7 +65,8 @@ async def generate_image(body: GenerateRequest):
             prompt=body.prompt,
             project_id=project_id,
             aspect_ratio=aspect_ratio,
-            image_model=model_name
+            image_model=model_name,
+            client_id=body.client_id
         )
 
         if result.get("error"):

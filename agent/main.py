@@ -50,6 +50,12 @@ async def root():
     return {"status": "ok", "message": "FlowKit Cloud API is running smoothly!"}
 
 
+@app.get("/api/extensions")
+async def list_extensions():
+    client = get_flow_client()
+    return {"extensions": client.list_extensions(), "total": len(client._extensions)}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}

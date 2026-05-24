@@ -29,9 +29,7 @@ function formatTime(iso) {
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
     return `${hh}:${mm}:${ss}`;
-  } catch {
-    return '—';
-  }
+  } catch { return '—'; }
 }
 
 function escHtml(str) {
@@ -44,27 +42,43 @@ function escHtml(str) {
 
 function badgeHtml(status) {
   if (status === 'COMPLETED' || status === 'success') {
-    return '<span class="badge badge-ok">&#10003; done</span>';
+    return '<span class="badge badge-ok">✓ done</span>';
   } else if (status === 'FAILED' || status === 'failed' || (typeof status === 'number' && status >= 400)) {
-    return '<span class="badge badge-fail">&#10007; fail</span>';
+    return '<span class="badge badge-fail">✗ fail</span>';
   } else if (status === 'PROCESSING') {
-    return '<span class="badge badge-proc">&#9203; gen...</span>';
+    return '<span class="badge badge-proc">⏳ gen...</span>';
   } else {
-    return '<span class="badge badge-proc">&#9203; sent</span>';
+    return '<span class="badge badge-proc">⏳ sent</span>';
   }
 }
 
+let _logEntries = [];
+
 function renderLog(entries) {
+  _logEntries = entries || [];
+  applyPopupFilter();
+}
+
+function applyPopupFilter() {
+  const filter = document.querySelector('.filter-pill.active');
+  const f = filter ? filter.dataset.f : 'all';
+  let filtered = _logEntries.slice();
+  if (f === 'success') filtered = filtered.filter(e => e.status === 'success' || e.status === 'COMPLETED');
+  if (f === 'failed') filtered = filtered.filter(e => e.status === 'failed' || e.status === 'FAILED' || (typeof e.status === 'number' && e.status >= 400));
+  renderLogList(filtered);
+}
+
+function renderLogList(entries) {
   const list = document.getElementById('log-list');
   const countEl = document.getElementById('log-count');
 
   if (!entries || entries.length === 0) {
     list.innerHTML = '<div class="log-empty">No requests yet</div>';
-    countEl.textContent = '0';
+    countEl.textContent = String(_logEntries.length);
     return;
   }
 
-  countEl.textContent = entries.length;
+  countEl.textContent = String(_logEntries.length);
 
   list.innerHTML = entries.map((entry, i) => {
     const shortId = entry.id ? String(entry.id).slice(0, 8) : '—';
@@ -80,17 +94,17 @@ function renderLog(entries) {
          </div>`
       : '';
 
-    const payloadDisplay = entry.payloadSummary
+    const payloadDisplay = entry.payloadSummary || entry.requestBody
       ? `<div class="detail-section">
            <div class="detail-label">Payload</div>
-           <div class="detail-value">${escHtml(entry.payloadSummary)}</div>
+           <div class="detail-value">${escHtml(entry.payloadSummary || entry.requestBody || '')}</div>
          </div>`
       : '';
 
-    const responseDisplay = entry.responseSummary
+    const responseDisplay = entry.responseSummary || entry.responseBody
       ? `<div class="detail-section">
            <div class="detail-label">Response${entry.httpStatus ? ` (${entry.httpStatus})` : ''}</div>
-           <div class="detail-value">${escHtml(entry.responseSummary)}</div>
+           <div class="detail-value">${escHtml(entry.responseSummary || entry.responseBody || '')}</div>
          </div>`
       : '';
 
@@ -101,7 +115,7 @@ function renderLog(entries) {
          </div>`
       : '';
 
-    const hasDetails = entry.url || entry.payloadSummary || entry.responseSummary || error;
+    const hasDetails = entry.url || entry.payloadSummary || entry.requestBody || entry.responseSummary || entry.responseBody || error;
 
     return `<div class="entry" data-idx="${i}">
       <div class="entry-row">
@@ -109,28 +123,53 @@ function renderLog(entries) {
         <span class="entry-type">${escHtml(type)}</span>
         <span class="entry-time">${escHtml(time)}</span>
         ${badgeHtml(status)}
-        ${hasDetails ? '<span class="expand-icon">&#9654;</span>' : '<span class="expand-icon" style="visibility:hidden">&#9654;</span>'}
+        ${hasDetails ? '<span class="expand-icon">▶</span>' : '<span class="expand-icon" style="visibility:hidden">▶</span>'}
       </div>
       ${hasDetails ? `<div class="entry-details">${urlDisplay}${payloadDisplay}${responseDisplay}${errorDisplay}</div>` : ''}
     </div>`;
   }).join('');
 
-  // Toggle expand on row click
   list.querySelectorAll('.entry-row').forEach((row) => {
     row.addEventListener('click', () => {
       const entry = row.closest('.entry');
-      if (entry.querySelector('.entry-details')) {
-        entry.classList.toggle('open');
-      }
+      if (entry.querySelector('.entry-details')) entry.classList.toggle('open');
     });
   });
 }
+
+// ── Side panel button ─────────────────────────────────────────
 
 document.getElementById('btn-panel').addEventListener('click', () => {
   chrome.windows.getCurrent((win) => {
     chrome.sidePanel.open({ windowId: win.id });
   });
 });
+
+// ── Clear button ──────────────────────────────────────────────
+
+document.getElementById('btn-clear-log').addEventListener('click', () => {
+  if (_logEntries.length === 0) return;
+  if (!confirm('Clear all log entries?')) return;
+  chrome.runtime.sendMessage({ type: 'CLEAR_LOG' });
+});
+
+// ── Filter pills ──────────────────────────────────────────────
+
+document.querySelectorAll('.filter-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    applyPopupFilter();
+  });
+});
+
+// ── Message listener (live updates) ───────────────────────────
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'REQUEST_LOG_UPDATE' && msg.log) renderLog(msg.log);
+});
+
+// ── Initial fetch ─────────────────────────────────────────────
 
 chrome.runtime.sendMessage({ type: 'REQUEST_LOG' }, (data) => {
   if (chrome.runtime.lastError) return;

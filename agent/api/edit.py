@@ -18,6 +18,7 @@ class EditRequest(BaseModel):
     aspect_ratio: Optional[str] = "16:9"
     image_model: Optional[str] = None  # GEM_PIX_2 or NARWHAL
     tasker: Optional[str] = "enabled"  # "enabled" or "disabled"
+    client_id: Optional[str] = None  # Route to a specific browser extension by client_id
 
 
 class EditResponse(BaseModel):
@@ -99,7 +100,8 @@ async def edit_image(body: EditRequest):
             source_media_id=source_media_id,
             project_id=project_id,
             aspect_ratio=aspect_ratio,
-            image_model=image_model
+            image_model=image_model,
+            client_id=body.client_id
         )
 
         if edit_result.get("error"):

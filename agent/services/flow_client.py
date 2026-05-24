@@ -34,6 +34,19 @@ class FlowClient:
         self._ws_last_disconnect_at: Optional[float] = None
         self._launching_browser = False
 
+    def list_extensions(self) -> list[dict]:
+        """Return list of connected extensions with their info (safe, no ws objects)."""
+        return [
+            {
+                "client_id": info.get("client_id"),
+                "has_token": bool(info.get("flow_key") and info.get("flow_key") != "present"),
+                "exhausted": info.get("exhausted", False),
+                "connected_at": info.get("connected_at"),
+                "age_seconds": int(time.time() - info.get("connected_at", time.time())),
+            }
+            for info in self._extensions.values()
+        ]
+
     def add_extension(self, ws):
         """Called when extension connects via WS."""
         self._extensions[ws] = {
@@ -65,6 +78,25 @@ class FlowClient:
             "connects": self._ws_connect_count,
             "disconnects": self._ws_disconnect_count,
         }
+
+    def _find_extension(self, client_id: str = None):
+        """Find a WebSocket by client_id, or first available if client_id is None.
+
+        Returns (ws, info) tuple or (None, None) if not found.
+        If found but exhausted, returns (None, {'exhausted': True}).
+        """
+        if client_id:
+            for ws, info in self._extensions.items():
+                if info.get("client_id") == client_id:
+                    if info.get("exhausted"):
+                        return None, {"exhausted": True, "client_id": client_id}
+                    return ws, info
+            return None, None
+        # No client_id — pick first non-exhausted
+        for ws, info in self._extensions.items():
+            if not info.get("exhausted"):
+                return ws, info
+        return None, None
 
     async def handle_message(self, ws, data: dict):
         """Handle incoming message from extension."""
@@ -185,7 +217,6 @@ class FlowClient:
         Each entry: {mediaId: str, mediaType: 'image'|'video', url: str}
         """
         from agent.db import crud
-        from agent.services.event_bus import event_bus
 
         updated = 0
         for entry in urls:
@@ -236,7 +267,6 @@ class FlowClient:
 
         if updated:
             logger.info("Refreshed %d media URLs from TRPC intercept", updated)
-            await event_bus.emit("urls_refreshed", {"count": updated})
 
     async def refresh_project_urls(self, project_id: str) -> dict:
         """Refresh media URLs for a project.
@@ -292,10 +322,15 @@ class FlowClient:
         finally:
             self._launching_browser = False
 
-    async def _send(self, method: str, params: dict, timeout: float = 300) -> dict:
-        """Send request to an available extension, falling back to others if needed."""
+    async def _send(self, method: str, params: dict, timeout: float = 300, client_id: str = None) -> dict:
+        """Send request to an available extension, falling back to others if needed.
+
+        If client_id is provided, route only to matching extension.
+        If client_id is None, try any available extension (current behavior).
+        """
         # 1. Wait for at least one connected extension
-        if not self._extensions:
+        # (skip this wait if client_id is specified — caller knows what they want)
+        if not client_id and not self._extensions:
             logger.info("No extensions connected. Triggering auto-launch...")
             await self._trigger_browser_launch()
             
@@ -303,8 +338,9 @@ class FlowClient:
                 return {"error": "Extension not connected. Auto-launch failed or timed out."}
 
         # 1.5. If extensions connected but no token, wait briefly for token capture
+        # (skip this wait if client_id is specified)
         has_token = any(info.get("flow_key") and info.get("flow_key") != "present" for info in self._extensions.values())
-        if not has_token:
+        if not has_token and not client_id:
             logger.info("Extension(s) connected but no token yet, waiting up to 15s...")
             for _ in range(15):
                 has_token = any(info.get("flow_key") and info.get("flow_key") != "present" for info in self._extensions.values())
@@ -316,25 +352,45 @@ class FlowClient:
             if not has_token:
                 return {"error": "No token captured after waiting. Please open Google Flow in browser and ensure you are logged in."}
 
-        # 2. Iterate through available websockets to find one that succeeds
+        # 2. Find target extension and send
+        # When client_id is specified, no fallback iteration — route directly or fail
+        if client_id:
+            available_ws, info = self._find_extension(client_id)
+            if available_ws is None:
+                if info and info.get("exhausted"):
+                    return {"error": f"CLIENT_EXHAUSTED: client_id={client_id}"}
+                return {"error": f"CLIENT_NOT_FOUND: client_id={client_id} — ensure the extension is connected and has sent its client_id"}
+            # Single attempt — no fallback loop for client-specific requests
+            req_id = str(uuid.uuid4())
+            future = asyncio.get_running_loop().create_future()
+            self._pending[req_id] = future
+            try:
+                await available_ws.send_text(json.dumps({
+                    "id": req_id,
+                    "method": method,
+                    "params": params,
+                }))
+                _, result = await asyncio.wait_for(future, timeout=timeout)
+                return result
+            except asyncio.TimeoutError:
+                if available_ws in self._extensions:
+                    self._extensions[available_ws]["exhausted"] = True
+                return {"error": f"CLIENT_TIMEOUT: client_id={client_id}"}
+            except Exception as e:
+                return {"error": str(e)}
+            finally:
+                self._pending.pop(req_id, None)
+
+        # No client_id — iterate through available extensions with fallback (original behavior)
         attempted = 0
         while True:
-            # Find a websocket that is not exhausted
-            available_ws = None
-            for ws, info in self._extensions.items():
-                if not info["exhausted"]:
-                    available_ws = ws
-                    break
+            available_ws, _ = self._find_extension()
             
             if not available_ws:
                 # All current connections exhausted. Trigger launch again.
                 logger.warning("All active extensions exhausted. Triggering auto-launch for fallback...")
                 await self._trigger_browser_launch()
-                # Check again
-                for ws, info in self._extensions.items():
-                    if not info["exhausted"]:
-                        available_ws = ws
-                        break
+                available_ws, _ = self._find_extension()
                 
                 if not available_ws:
                     return {"error": "All browser extensions exhausted (Rate limit or Auth error)."}
@@ -402,7 +458,7 @@ class FlowClient:
 
     # ─── High-level API Methods ──────────────────────────────
 
-    async def create_project(self, project_title: str, tool_name: str = "PINHOLE") -> dict:
+    async def create_project(self, project_title: str, tool_name: str = "PINHOLE", client_id: str = None) -> dict:
         """Create a project on Google Flow via tRPC endpoint.
 
         Returns the full response including projectId.
@@ -418,13 +474,14 @@ class FlowClient:
                 "accept": "*/*",
             },
             "body": body,
-        }, timeout=30)
+        }, timeout=30, client_id=client_id)
 
     async def generate_images(self, prompt: str, project_id: str,
                                aspect_ratio: str = "IMAGE_ASPECT_RATIO_PORTRAIT",
                                user_paygate_tier: str = "PAYGATE_TIER_TWO",
                                character_media_ids: list[str] = None,
-                               image_model: str = None) -> dict:
+                               image_model: str = None,
+                               client_id: str = None) -> dict:
         """Generate image(s).
 
         If character_media_ids is provided, uses edit_image flow (batchGenerateImages
@@ -474,14 +531,15 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "IMAGE_GENERATION",
-        })
+        }, client_id=client_id)
 
     async def edit_image(self, prompt: str, source_media_id: str,
                           project_id: str,
                           aspect_ratio: str = "IMAGE_ASPECT_RATIO_PORTRAIT",
                           user_paygate_tier: str = "PAYGATE_TIER_ONE",
                           character_media_ids: list[str] = None,
-                          image_model: str = None) -> dict:
+                          image_model: str = None,
+                          client_id: str = None) -> dict:
         """Edit an existing image using IMAGE_INPUT_TYPE_BASE_IMAGE.
 
         If character_media_ids is provided, appends them as IMAGE_INPUT_TYPE_REFERENCE
@@ -527,13 +585,14 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "IMAGE_GENERATION",
-        })
+        }, client_id=client_id)
 
     async def generate_video(self, start_image_media_id: str, prompt: str,
                               project_id: str, scene_id: str,
                               aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
                               end_image_media_id: str = None,
-                              user_paygate_tier: str = "PAYGATE_TIER_TWO") -> dict:
+                              user_paygate_tier: str = "PAYGATE_TIER_TWO",
+                              client_id: str = None) -> dict:
         """Generate video from start image (i2v).
 
         Two sub-types:
@@ -573,12 +632,13 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "VIDEO_GENERATION",
-        }, timeout=60)  # Submit only — polling is separate
+        }, timeout=60, client_id=client_id)  # Submit only — polling is separate
 
     async def generate_video_from_references(self, reference_media_ids: list[str],
                                               prompt: str, project_id: str, scene_id: str,
                                               aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
-                                              user_paygate_tier: str = "PAYGATE_TIER_TWO") -> dict:
+                                              user_paygate_tier: str = "PAYGATE_TIER_TWO",
+                                              client_id: str = None) -> dict:
         """Generate video from multiple reference images (r2v).
 
         Uses referenceImages instead of startImage — the model composes
@@ -619,11 +679,12 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "VIDEO_GENERATION",
-        }, timeout=60)
+        }, timeout=60, client_id=client_id)
 
     async def upscale_video(self, media_id: str, scene_id: str,
                              aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
-                             resolution: str = "VIDEO_RESOLUTION_4K") -> dict:
+                             resolution: str = "VIDEO_RESOLUTION_4K",
+                             client_id: str = None) -> dict:
         """Upscale a video."""
         model_key = UPSCALE_MODELS.get(resolution, "veo_3_1_upsampler_4k")
 
@@ -652,9 +713,9 @@ class FlowClient:
             "headers": random_headers(),
             "body": body,
             "captchaAction": "VIDEO_GENERATION",
-        }, timeout=60)
+        }, timeout=60, client_id=client_id)
 
-    async def check_video_status(self, operations: list[dict]) -> dict:
+    async def check_video_status(self, operations: list[dict], client_id: str = None) -> dict:
         """Check status of video generation operations."""
         body = {"operations": operations}
         url = self._build_url("check_video_status")
@@ -663,42 +724,35 @@ class FlowClient:
             "method": "POST",
             "headers": random_headers(),
             "body": body,
-        }, timeout=30)  # No captcha needed
+        }, timeout=30, client_id=client_id)  # No captcha needed
 
-    async def get_credits(self) -> dict:
+    async def get_credits(self, client_id: str = None) -> dict:
         """Get user credits and tier."""
         url = self._build_url("get_credits")
         return await self._send("api_request", {
             "url": url,
             "method": "GET",
             "headers": random_headers(),
-        }, timeout=15)
+        }, timeout=15, client_id=client_id)
 
-    async def validate_media_id(self, media_id: str) -> bool:
-        """Check if a mediaId is still valid.
-
-        Production calls: GET /v1/media/{mediaId}?key=...&clientContext.tool=PINHOLE
-        Returns True on 200, False otherwise.
-        """
-        result = await self.get_media(media_id)
+    async def validate_media_id(self, media_id: str, client_id: str = None) -> bool:
+        """Check if a mediaId is still valid."""
+        result = await self.get_media(media_id, client_id=client_id)
         status = result.get("status", 500)
         return isinstance(status, int) and status == 200
 
-    async def get_media(self, media_id: str) -> dict:
-        """Fetch media metadata from Google Flow.
-
-        Returns the raw API response which contains a fresh signed URL
-        in data.fifeUrl or data.servingUri.
-        """
+    async def get_media(self, media_id: str, client_id: str = None) -> dict:
+        """Fetch media metadata from Google Flow."""
         url = f"{GOOGLE_FLOW_API}/v1/media/{media_id}?key={GOOGLE_API_KEY}&clientContext.tool=PINHOLE"
         return await self._send("api_request", {
             "url": url,
             "method": "GET",
             "headers": random_headers(),
-        }, timeout=15)
+        }, timeout=15, client_id=client_id)
 
     async def upload_image(self, image_base64: str, mime_type: str = "image/jpeg",
-                            project_id: str = "", file_name: str = "image.jpg") -> dict:
+                            project_id: str = "", file_name: str = "image.jpg",
+                            client_id: str = None) -> dict:
         """Upload an image for use as start/end frame.
 
         Uses /v1/flow/uploadImage endpoint.
@@ -723,7 +777,7 @@ class FlowClient:
             "method": "POST",
             "headers": random_headers(),
             "body": body,
-        }, timeout=60)
+        }, timeout=60, client_id=client_id)
 
         # Extract media.name for convenience (used as mediaId in video gen)
         if not _is_ws_error(result):

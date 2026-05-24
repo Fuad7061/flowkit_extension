@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Flow Kit</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,7 +23,9 @@
     }
 
     html, body {
-      width: 360px;
+      width: 100%;
+      min-width: 280px;
+      max-width: 420px;
       min-height: 200px;
       background: var(--bg);
       color: var(--text);
@@ -35,7 +38,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 12px 8px;
+      padding: 8px 10px;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
     }
@@ -70,13 +73,19 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 12px 5px;
+      padding: 5px 10px;
       font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--muted);
       background: var(--surface);
       border-bottom: 1px solid var(--border);
+    }
+
+    .log-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     #log-count {
@@ -86,6 +95,43 @@
       font-size: 9px;
       color: var(--muted);
     }
+
+    .btn-clear-sm {
+      padding: 2px 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: 8px;
+      cursor: pointer;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .btn-clear-sm:hover { border-color: var(--red); color: var(--red); }
+
+    .filter-row {
+      display: flex;
+      gap: 4px;
+      padding: 4px 10px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .filter-pill {
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .filter-pill.active { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+    .filter-pill:hover { border-color: var(--accent); }
 
     #log-list {
       max-height: 440px;
@@ -99,22 +145,20 @@
     #log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
     .log-empty {
-      padding: 20px 12px;
+      padding: 20px 10px;
       text-align: center;
       color: var(--muted);
       font-size: 10px;
       letter-spacing: 0.04em;
     }
 
-    .entry {
-      border-bottom: 1px solid rgba(37,37,69,0.6);
-    }
+    .entry { border-bottom: 1px solid rgba(37,37,69,0.6); }
 
     .entry-row {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 12px;
+      padding: 5px 10px;
       cursor: pointer;
       transition: background 0.1s;
       user-select: none;
@@ -125,7 +169,7 @@
     .entry-id {
       font-size: 9px;
       color: var(--muted);
-      min-width: 54px;
+      min-width: 50px;
       flex-shrink: 0;
     }
 
@@ -173,18 +217,16 @@
 
     .entry-details {
       display: none;
-      padding: 0 12px 8px;
+      padding: 0 10px 6px;
       background: var(--surface);
     }
 
     .entry.open .entry-details { display: block; }
 
-    .detail-section {
-      margin-top: 6px;
-    }
+    .detail-section { margin-top: 5px; }
 
     .detail-label {
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--muted);
@@ -197,7 +239,7 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 3px;
-      padding: 4px 6px;
+      padding: 3px 5px;
       word-break: break-all;
       white-space: pre-wrap;
       max-height: 80px;
@@ -212,18 +254,24 @@
       max-height: none;
     }
 
-    .detail-error {
-      color: var(--red);
-    }
+    .detail-error { color: var(--red); }
 
     .footer {
-      padding: 8px 12px;
+      padding: 6px 10px;
       border-top: 1px solid var(--border);
       background: var(--surface);
-      font-size: 9px;
+      font-size: 8px;
       color: var(--muted);
       text-align: center;
       letter-spacing: 0.04em;
+    }
+
+    @media (max-width: 360px) {
+      body { max-width: 100%; }
+      header { padding: 6px 8px; }
+      .entry-row { padding: 4px 8px; }
+      .entry-id { min-width: 40px; font-size: 8px; }
+      .entry-type { font-size: 9px; }
     }
   </style>
 </head>
@@ -235,7 +283,16 @@
 
   <div class="log-header">
     Recent Requests
-    <span id="log-count">0</span>
+    <div class="log-header-right">
+      <span id="log-count">0</span>
+      <button class="btn-clear-sm" id="btn-clear-log">✕ Clear</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <button class="filter-pill active" data-f="all">All</button>
+    <button class="filter-pill" data-f="success">OK</button>
+    <button class="filter-pill" data-f="failed">Fail</button>
   </div>
 
   <div id="log-list">
