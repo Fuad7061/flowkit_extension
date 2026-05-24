@@ -848,6 +848,18 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
     return true;
   }
 
+  if (msg.type === 'SAVE_CLIENT_ID') {
+    const newId = msg.clientId;
+    if (!newId || typeof newId !== 'string') { reply({ ok: false, error: 'invalid clientId' }); return true; }
+    clientId = newId;
+    chrome.storage.local.set({ clientId });
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'client_id', client_id: clientId }));
+    }
+    reply({ ok: true, clientId });
+    return true;
+  }
+
   if (msg.type === 'GET_EXTENSIONS') {
     // Fetch from agent API if connected, otherwise return local info only
     fetch('http://127.0.0.1:8100/api/extensions', {

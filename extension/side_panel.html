@@ -1519,10 +1519,14 @@
       <!-- Extension Info -->
       <div class="settings-group">
         <div class="settings-group-title">🔌 Extension Info</div>
-        <div class="settings-row">
-          <div class="settings-label">Client ID</div>
-          <div class="settings-value">
-            <code style="font-size:8px;color:var(--accent);cursor:pointer" id="settings-client-id" title="Click to copy">—</code>
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="field-label" for="settings-client-id-input">Client ID</div>
+          <div class="field-input-wrap">
+            <input class="field-input" type="text" id="settings-client-id-input" placeholder="auto-generated UUID" style="font-size:10px;font-family:monospace">
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn-save" id="btn-save-client-id" style="margin-top:0;flex:1">Save Client ID</button>
+            <span id="settings-client-id-saved" style="font-size:9px;color:var(--green);display:none">✓ Saved</span>
           </div>
         </div>
         <div class="settings-group-title" style="margin-top:8px">Connected Extensions</div>

@@ -402,7 +402,8 @@ function fetchClientId() {
     const badge = document.getElementById('client-id-badge');
     badge.textContent = data.clientId ? data.clientId.slice(0, 8) + '…' : '—';
     badge.title = 'Client ID: ' + (data.clientId || '—') + '\nClick to copy';
-    document.getElementById('settings-client-id').textContent = data.clientId || '—';
+    const input = document.getElementById('settings-client-id-input');
+    if (input) input.value = data.clientId || '';
   });
 }
 
@@ -533,14 +534,30 @@ document.getElementById('setting-retention').addEventListener('change', saveLogS
 document.getElementById('setting-max-entries').addEventListener('change', saveLogSettings);
 document.getElementById('setting-persist').addEventListener('change', saveLogSettings);
 
-document.getElementById('settings-client-id').addEventListener('click', () => {
-  if (_localClientId && _localClientId !== '—') {
-    navigator.clipboard.writeText(_localClientId);
-    const el = document.getElementById('settings-client-id');
-    el.textContent = 'copied!';
-    setTimeout(() => { el.textContent = _localClientId; }, 1200);
-  }
+// ── Client ID save ────────────────────────────────────────────
+
+document.getElementById('btn-save-client-id').addEventListener('click', () => {
+  const newId = document.getElementById('settings-client-id-input').value.trim();
+  if (!newId) return;
+  const btn = document.getElementById('btn-save-client-id');
+  btn.textContent = 'Saving...';
+  btn.disabled = true;
+  chrome.runtime.sendMessage({ type: 'SAVE_CLIENT_ID', clientId: newId }, (data) => {
+    if (data && data.ok) {
+      _localClientId = data.clientId || newId;
+      const badge = document.getElementById('client-id-badge');
+      badge.textContent = _localClientId.slice(0, 8) + '…';
+      badge.title = 'Client ID: ' + _localClientId + '\nClick to copy';
+      const savedEl = document.getElementById('settings-client-id-saved');
+      savedEl.style.display = 'inline-block';
+      setTimeout(() => { savedEl.style.display = 'none'; }, 2000);
+    }
+    btn.textContent = 'Save Client ID';
+    btn.disabled = false;
+  });
 });
+
+// Clipboard still works on badge
 
 // ── Tunnel Connection ─────────────────────────────────────────
 
